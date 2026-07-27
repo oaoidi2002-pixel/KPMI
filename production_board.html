@@ -288,6 +288,10 @@ html,body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans
 .notetoggle{font-size:12.5px;color:var(--text-dim);padding:10px 0;text-align:center;border-top:1px dashed var(--border-soft);margin-top:4px;cursor:pointer;}
 .notebox{margin-top:10px;}
 .deeplinkback{display:block;text-align:center;font-size:12.5px;color:var(--text-dim);padding:10px;margin-bottom:10px;background:var(--panel);border:1px solid var(--border);border-radius:9px;text-decoration:none;}
+.subhead{font-size:12.5px;color:var(--text-dim);margin:22px 0 10px;font-weight:600;}
+select.field{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238A97A8'/></svg>");background-repeat:no-repeat;background-position:right 14px center;}
+.wipcard2{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;}
+.wipcard2 .wl2{font-size:13px;color:var(--text);font-weight:600;margin-bottom:12px;}
 
 .label{font-size:12px;color:var(--text-faint);margin:0 0 8px;}
 .seg{display:flex;gap:6px;margin-bottom:16px;}
@@ -391,30 +395,67 @@ textarea.field{resize:vertical;min-height:60px;}
     <div class="facbtn wj" data-fac="wonju">원주공장</div>
   </div>
 
-  <div class="catsel" id="catSel">
-    <div class="catbtn" data-cat="single">1공정 싱글</div>
-    <div class="catbtn" data-cat="press">2공정 프레스</div>
-    <div class="catbtn" data-cat="inspect">4공정 검단</div>
+  <div class="catsel" id="sectionSel">
+    <div class="catbtn" data-section="equip">설비입력</div>
+    <div class="catbtn" data-section="material">원자재</div>
+    <div class="catbtn" data-section="wip">재공현황</div>
   </div>
 
-  <div id="list"><div class="loading">불러오는 중…</div></div>
+  <div id="equipSection">
+    <div class="catsel" id="catSel">
+      <div class="catbtn" data-cat="single">싱글</div>
+      <div class="catbtn" data-cat="press">프레스</div>
+      <div class="catbtn" data-cat="inspect">검단</div>
+    </div>
+    <div id="list"><div class="loading">불러오는 중…</div></div>
+  </div>
+
+  <div id="materialSection" style="display:none">
+    <div class="label">자재 종류</div>
+    <div class="seg" id="matTypeSel">
+      <div class="segbtn sel-on" data-mat="원사" onclick="selectMatType('원사')">원사</div>
+      <div class="segbtn" data-mat="레진" onclick="selectMatType('레진')">레진</div>
+      <div class="segbtn" data-mat="필름" onclick="selectMatType('필름')">필름</div>
+    </div>
+    <div class="label">투입량 (kg)</div>
+    <div class="stepper">
+      <div class="stepbtn" onclick="matStep(-10)">−</div>
+      <div class="stepval num" id="matVal">0<span class="u">kg</span></div>
+      <div class="stepbtn" onclick="matStep(10)">+</div>
+    </div>
+    <div class="quickrow">
+      <input class="field" type="number" inputmode="numeric" id="matNum" value="0" placeholder="직접 입력">
+      <button class="applybtn" onclick="matApply()">적용</button>
+    </div>
+    <div class="label">투입 설비 (어느 싱글로 들어가는지)</div>
+    <select class="field" id="matTarget"></select>
+    <div class="label">특이사항 (선택)</div>
+    <textarea class="field" id="matNote" placeholder="예: 신규 로트 교체"></textarea>
+    <button class="savebtn" id="matSaveBtn" onclick="saveMaterial()">투입 등록</button>
+
+    <div class="subhead">최근 투입 이력</div>
+    <div class="alerts" id="matHistory"></div>
+  </div>
+
+  <div id="wipSection" style="display:none">
+    <div class="s" style="margin-bottom:16px;">재공 수량은 현재 눈으로 확인한 값을 입력하는 방식입니다. +/- 는 잠시 후 자동저장됩니다.</div>
+    <div id="wipList"></div>
+  </div>
 </div>
 
 <div class="toast" id="toast"><span class="d"></span><span id="toastMsg">저장되었습니다</span></div>
 
 
+
 </div>
 <script>
-/* ================= 접속 비밀번호 (간단한 접근 차단용) =================
-   완전한 보안은 아니지만, 주소를 우연히 알게 된 사람이 바로 못 들어오게
-   막는 용도입니다. 비밀번호를 바꾸려면 아래 문자열만 수정하면 됩니다. */
+/* ================= 접속 비밀번호 (간단한 접근 차단용) ================= */
 const SITE_PASSWORD = '0317';
 (function(){
   const lockScreen = document.getElementById('lockScreen');
   const lockInput = document.getElementById('lockInput');
   const lockBtn = document.getElementById('lockBtn');
   const lockError = document.getElementById('lockError');
-
   function tryUnlock(){
     if(lockInput.value === SITE_PASSWORD){
       sessionStorage.setItem('pb_unlocked', '1');
@@ -425,35 +466,34 @@ const SITE_PASSWORD = '0317';
       lockInput.focus();
     }
   }
-
-  try{
-    if(sessionStorage.getItem('pb_unlocked') === '1'){
-      lockScreen.style.display = 'none';
-    }
-  }catch(e){}
-
+  try{ if(sessionStorage.getItem('pb_unlocked')==='1') lockScreen.style.display='none'; }catch(e){}
   lockBtn.addEventListener('click', tryUnlock);
   lockInput.addEventListener('keydown', e=>{ if(e.key==='Enter') tryUnlock(); });
 })();
+
 /* ============================================================
    구글 시트 연동 설정
-   Apps Script를 웹앱으로 배포한 뒤 생성되는 URL을 아래에 붙여넣으세요.
-   예) https://script.google.com/macros/s/AKfycb.../exec
    ============================================================ */
 const API_URL = 'https://script.google.com/macros/s/AKfycbzyvUYQn4NcGMf7tb4ZX5z8wDs7fb8gCoxRWNMKpfsaTcUw3kikAKOy_ju4OpkTPhrZeQ/exec';
 
-/* 공장별 고정 정보(목표량, 재공재고 표기 등)는 시트에 없는 값이라 여기서 관리합니다.
-   실제 값으로 바뀌면 이 부분만 수정하면 됩니다. */
 const FACTORY_META = {
-  jecheon:{ name:'제천공장', short:'제천', accent:'jc', targetFinal:6500, wip:{single:1380,press:960,laminate:420,pack:610} },
-  wonju:{ name:'원주공장', short:'원주', accent:'wj', targetFinal:7400, wip:{single:1610,press:1120,laminate:530,pack:780} }
+  jecheon:{ name:'제천공장', short:'제천', accent:'jc', targetFinal:6500 },
+  wonju:{ name:'원주공장', short:'원주', accent:'wj', targetFinal:7400 }
+};
+const WIP_STAGES = ['single_wait_press','press_wait_inspect','press_wait_repress','inspect_wait_pack'];
+const WIP_LABELS = {
+  single_wait_press: '싱글 완제품 · 프레스 투입 대기',
+  press_wait_inspect: '프레스 완제품 · 검단 투입 대기',
+  press_wait_repress: '프레스 완제품 · 재프레스 대기',
+  inspect_wait_pack: '검단 완료 · 포장 대기'
 };
 
 let FACTORIES = {
-  jecheon:{...FACTORY_META.jecheon, single:[], press:[], inspect:[]},
-  wonju:{...FACTORY_META.wonju, single:[], press:[], inspect:[]}
+  jecheon:{...FACTORY_META.jecheon, single:[], press:[], inspect:[], wip:{}},
+  wonju:{...FACTORY_META.wonju, single:[], press:[], inspect:[], wip:{}}
 };
 let alerts = [];
+let materials = { jecheon: [], wonju: [] };
 let trendJC = [520,610,590,680,720,640,700,610];
 let trendWJ = [640,700,680,760,810,700,790,720];
 let currentTab = 'combined';
@@ -478,10 +518,7 @@ function fmtTime(v){
 
 /* ================= 구글 시트 API 연동 ================= */
 async function fetchState(){
-  if(API_URL === 'YOUR_WEB_APP_URL_HERE'){
-    setSyncLabel('URL 미설정', false);
-    return;
-  }
+  if(API_URL === 'YOUR_WEB_APP_URL_HERE'){ setSyncLabel('URL 미설정', false); return; }
   try{
     const res = await fetch(API_URL+'?action=state');
     const rows = await res.json();
@@ -493,13 +530,30 @@ async function fetchState(){
         cur:Number(r.cur)||0, tgt:Number(r.tgt)||1, startHour:r.startHour||8
       });
     });
+
+    const wres = await fetch(API_URL+'?action=wip');
+    const wrows = await wres.json();
+    const wipGrouped = {jecheon:{}, wonju:{}};
+    wrows.forEach(w=>{
+      if(!wipGrouped[w.factory]) return;
+      wipGrouped[w.factory][w.stage] = Number(w.qty)||0;
+    });
+
     ['jecheon','wonju'].forEach(k=>{
-      FACTORIES[k] = {...FACTORY_META[k], ...grouped[k]};
+      FACTORIES[k] = {...FACTORY_META[k], ...grouped[k], wip: wipGrouped[k]||{}};
     });
 
     const ares = await fetch(API_URL+'?action=alerts');
     const arows = await ares.json();
     alerts = arows.map(a=>({t:fmtTime(a.time), fac:a.factory, lvl:a.level, msg:a.message}));
+
+    const mres = await fetch(API_URL+'?action=materials');
+    const mrows = await mres.json();
+    materials = {jecheon:[], wonju:[]};
+    mrows.forEach(m=>{
+      if(!materials[m.factory]) return;
+      materials[m.factory].push({t:fmtTime(m.time), material:m.material, qty:Number(m.qty)||0, unit:m.unit, target:m.targetSingle, note:m.note});
+    });
 
     setSyncLabel('LIVE', true);
   }catch(err){
@@ -540,9 +594,8 @@ function renderRail(){
   }
   const stageVals = [
     {name:'원사/레진/필름 투입', val:'정상 공급', st:'ok'},
-    {name:'1공정 싱글', val:fmtM(sumSingle)+' M', st: sumSingle>0?'ok':'bad'},
-    {name:'2공정 프레스', val:fmtM(sumPress)+' M', st: sumPress>0?'ok':'warn'},
-    {name:'3/4공정', val:'재프레스·라미·검단', st:'ok'},
+    {name:'싱글', val:fmtM(sumSingle)+' M', st: sumSingle>0?'ok':'bad'},
+    {name:'프레스', val:fmtM(sumPress)+' M', st: sumPress>0?'ok':'warn'},
     {name:'검단', val:fmtM(sumInspect)+' M', st:'ok'},
     {name:'포장', val:fmtM(Math.round(sumFinal*0.9))+' M', st:'ok'},
     {name:'완제품', val:fmtM(sumFinal)+' / '+fmtM(tgtFinal)+' M', st: sumFinal/tgtFinal>0.5?'ok':'warn'}
@@ -579,9 +632,9 @@ function renderCombined(){
           <div class="k-sub">목표 ${fmtM(f.targetFinal)} M · 달성률 ${achieve}%</div>
         </div>
         <div class="kpi">
-          <div class="k-label">1공정 싱글 생산</div>
+          <div class="k-label">싱글 생산</div>
           <div class="k-val num">${fmtM(f.single.reduce((a,e)=>a+e.cur,0))}<span class="unit">M</span></div>
-          <div class="k-sub">2공정 프레스 ${fmtM(f.press.reduce((a,e)=>a+e.cur,0))} M</div>
+          <div class="k-sub">프레스 ${fmtM(f.press.reduce((a,e)=>a+e.cur,0))} M</div>
         </div>
       </div>
       <div class="progress ${pbarClass(achieve)}"><div style="width:${achieve}%"></div></div>
@@ -596,8 +649,8 @@ function renderCombined(){
   <div class="section-title"><span>공정별 생산량 비교</span><span class="ln"></span></div>
   <table class="cmp-table">
     <tr><th>공정 구간</th><th>제천</th><th>원주</th><th>합계</th></tr>
-    ${cmpRow('1공정 싱글 반제품', FACTORIES.jecheon.single.reduce((a,e)=>a+e.cur,0), FACTORIES.wonju.single.reduce((a,e)=>a+e.cur,0))}
-    ${cmpRow('2공정 프레스 반제품', FACTORIES.jecheon.press.reduce((a,e)=>a+e.cur,0), FACTORIES.wonju.press.reduce((a,e)=>a+e.cur,0))}
+    ${cmpRow('싱글 생산', FACTORIES.jecheon.single.reduce((a,e)=>a+e.cur,0), FACTORIES.wonju.single.reduce((a,e)=>a+e.cur,0))}
+    ${cmpRow('프레스 생산', FACTORIES.jecheon.press.reduce((a,e)=>a+e.cur,0), FACTORIES.wonju.press.reduce((a,e)=>a+e.cur,0))}
     ${cmpRow('검단 처리량', FACTORIES.jecheon.inspect.reduce((a,e)=>a+e.cur,0), FACTORIES.wonju.inspect.reduce((a,e)=>a+e.cur,0))}
     ${cmpRow('완제품(검단 후)', Math.round(FACTORIES.jecheon.inspect.reduce((a,e)=>a+e.cur,0)*0.94), Math.round(FACTORIES.wonju.inspect.reduce((a,e)=>a+e.cur,0)*0.94))}
   </table>
@@ -648,23 +701,25 @@ function renderFactoryDetail(key){
   const avgTrend = key==='jecheon' ? trendJC : trendWJ;
   const maxTrend = Math.max(...avgTrend);
   const trendColors = key==='jecheon' ? 'var(--jc)' : 'var(--wj)';
+  const w = f.wip || {};
+  const matList = (materials[key]||[]).slice().reverse().slice(0,6);
 
   let html = `
-  <div class="section-title"><span>1공정 · 싱글 (${f.single.length}대)</span><span class="ln"></span></div>
+  <div class="section-title"><span>싱글 (${f.single.length}대)</span><span class="ln"></span></div>
   <div class="eqgrid">${f.single.map(eqCard).join('')}</div>
 
-  <div class="section-title"><span>2공정 · 프레스 (${f.press.length}대)</span><span class="ln"></span></div>
+  <div class="section-title"><span>프레스 (${f.press.length}대)</span><span class="ln"></span></div>
   <div class="eqgrid">${f.press.map(eqCard).join('')}</div>
 
-  <div class="section-title"><span>4공정 · 검단 (${f.inspect.length}대)</span><span class="ln"></span></div>
+  <div class="section-title"><span>검단 (${f.inspect.length}대)</span><span class="ln"></span></div>
   <div class="eqgrid">${f.inspect.map(eqCard).join('')}</div>
 
   <div class="section-title"><span>공정간 재공(WIP) 현황</span><span class="ln"></span></div>
   <div class="wipgrid">
-    <div class="wipcard"><div class="wl">싱글 반제품 대기</div><div class="wv num">${fmtM(f.wip.single)}<span class="u"> M</span></div><div class="arrow">→ 프레스 투입 대기</div></div>
-    <div class="wipcard"><div class="wl">프레스 반제품 대기</div><div class="wv num">${fmtM(f.wip.press)}<span class="u"> M</span></div><div class="arrow">→ 3공정 투입 대기</div></div>
-    <div class="wipcard"><div class="wl">라미/재프레스 대기</div><div class="wv num">${fmtM(f.wip.laminate)}<span class="u"> M</span></div><div class="arrow">→ 검단 대기</div></div>
-    <div class="wipcard"><div class="wl">검단 완료 · 포장 대기</div><div class="wv num">${fmtM(f.wip.pack)}<span class="u"> M</span></div><div class="arrow">→ 완제품 입고 대기</div></div>
+    <div class="wipcard"><div class="wl">${WIP_LABELS.single_wait_press}</div><div class="wv num">${fmtM(w.single_wait_press)}<span class="u"> M</span></div></div>
+    <div class="wipcard"><div class="wl">${WIP_LABELS.press_wait_inspect}</div><div class="wv num">${fmtM(w.press_wait_inspect)}<span class="u"> M</span></div></div>
+    <div class="wipcard"><div class="wl">${WIP_LABELS.press_wait_repress}</div><div class="wv num">${fmtM(w.press_wait_repress)}<span class="u"> M</span></div></div>
+    <div class="wipcard"><div class="wl">${WIP_LABELS.inspect_wait_pack}</div><div class="wv num">${fmtM(w.inspect_wait_pack)}<span class="u"> M</span></div></div>
   </div>
 
   <div class="grid2" style="margin-top:26px;">
@@ -695,6 +750,15 @@ function renderFactoryDetail(key){
     </div>
   </div>
 
+  <div class="section-title"><span>원자재 투입 이력</span><span class="ln"></span></div>
+  <div class="alerts" id="matBox">
+    ${matList.length ? matList.map(m=>`
+      <div class="alert-row">
+        <span class="tm num">${m.t}</span>
+        <span class="msg">${m.material} ${fmtM(m.qty)}${m.unit||'kg'} → ${m.target}${m.note?(' · '+m.note):''}</span>
+      </div>`).join('') : '<div class="alert-row"><span class="msg" style="color:var(--text-faint)">최근 투입 이력 없음</span></div>'}
+  </div>
+
   <div class="section-title"><span>${f.short} 알림</span><span class="ln"></span></div>
   <div class="alerts" id="alertsBox"></div>
   `;
@@ -718,7 +782,12 @@ function render(){
   renderRail();
   if(currentTab==='combined') renderCombined();
   else renderFactoryDetail(currentTab);
-  if(document.getElementById('inputRoot').style.display !== 'none') renderList();
+  if(document.getElementById('inputRoot').style.display !== 'none'){
+    renderList();
+    renderMaterialHistory();
+    renderWipSection();
+    populateMatTargets();
+  }
 }
 
 /* ================= 탭 전환 ================= */
@@ -761,11 +830,9 @@ if(modeParam === 'input'){
 /* ================= 생산실적 입력 폼 로직 (빠른 입력 / 자동저장) ================= */
 let curFac = 'jecheon';
 let curCat = 'single';
+let curSection = 'equip';
 const saveTimers = {};
 
-/* QR코드/바로가기 딥링크: ?mode=input&fac=jecheon&cat=single&eq=0
-   특정 설비 화면으로 바로 열리게 하고 싶을 때 이 파라미터를 붙인 주소를 만들어
-   QR코드로 인쇄해 설비에 붙여두면 스캔 한 번으로 그 설비만 뜹니다. */
 const deepFac = urlParams.get('fac');
 const deepCat = urlParams.get('cat');
 const deepEq = urlParams.get('eq');
@@ -779,6 +846,7 @@ if(deepFac && deepCat && (deepFac==='jecheon'||deepFac==='wonju')){
 function renderList(){
   const data = FACTORIES[curFac];
   const listEl = document.getElementById('list');
+  if(!listEl) return;
   if(!data || !data[curCat] || !data[curCat].length){ listEl.innerHTML = '<div class="loading">불러오는 중…</div>'; return; }
   const items = data[curCat];
   let indices = items.map((_,i)=>i);
@@ -836,11 +904,9 @@ function uidParts(uid){
   return { cat: p[1], idx: parseInt(p[2]) };
 }
 
-/* 상태 버튼: 탭하는 즉시 저장 (디바운스 없음) */
 function quickStatus(uid, status){
   const {cat, idx} = uidParts(uid);
   FACTORIES[curFac][cat][idx].status = status;
-  // 화면 일부만 즉시 갱신 (전체 재렌더링으로 인한 입력 포커스 끊김 방지)
   const pill = document.getElementById('pill-'+uid);
   if(pill){ pill.className = 'pill '+status; pill.innerHTML = `<span class="d"></span>${statusLabel(status)}`; }
   ['on','chk','off'].forEach(s=>{
@@ -850,7 +916,6 @@ function quickStatus(uid, status){
   commitSave(uid);
 }
 
-/* +/- 버튼: 연타 대응을 위해 700ms 후 자동저장 */
 function quickStep(uid, delta){
   const {cat, idx} = uidParts(uid);
   const eqObj = FACTORIES[curFac][cat][idx];
@@ -863,7 +928,6 @@ function quickStep(uid, delta){
   saveTimers[uid] = setTimeout(()=>commitSave(uid), 700);
 }
 
-/* 직접 입력 숫자: 적용 버튼 눌러야 저장 (오타 방지) */
 function applyNum(uid){
   const {cat, idx} = uidParts(uid);
   const numEl = document.getElementById('num-'+uid);
@@ -902,7 +966,6 @@ async function saveNote(uid){
   }
 }
 
-/* 상태/생산량 실제 서버 반영 (자동저장 공통 처리) */
 async function commitSave(uid){
   const {cat, idx} = uidParts(uid);
   const eq = FACTORIES[curFac][cat][idx];
@@ -931,12 +994,119 @@ function showToast(msg){
   window._toastTimer = setTimeout(()=>t.classList.remove('show'), 1600);
 }
 
+/* ---------------- 원자재 입력 ---------------- */
+let curMatType = '원사';
+let curMatQty = 0;
+
+function selectMatType(m){
+  curMatType = m;
+  document.querySelectorAll('#matTypeSel .segbtn').forEach(b=>{
+    b.classList.toggle('sel-on', b.dataset.mat===m);
+  });
+}
+
+function matStep(delta){
+  curMatQty = Math.max(0, curMatQty + delta);
+  document.getElementById('matVal').innerHTML = fmtM(curMatQty)+'<span class="u">kg</span>';
+  document.getElementById('matNum').value = curMatQty;
+}
+
+function matApply(){
+  const v = Math.max(0, parseInt(document.getElementById('matNum').value||'0'));
+  curMatQty = v;
+  document.getElementById('matVal').innerHTML = fmtM(v)+'<span class="u">kg</span>';
+}
+
+function populateMatTargets(){
+  const sel = document.getElementById('matTarget');
+  if(!sel) return;
+  const singles = (FACTORIES[curFac] && FACTORIES[curFac].single) || [];
+  const prevVal = sel.value;
+  sel.innerHTML = singles.map(s=>`<option value="${s.id}">${s.id} (${s.item})</option>`).join('');
+  if(singles.some(s=>s.id===prevVal)) sel.value = prevVal;
+}
+
+async function saveMaterial(){
+  const target = document.getElementById('matTarget').value;
+  const note = document.getElementById('matNote').value.trim();
+  if(curMatQty<=0){ showToast('투입량을 입력해주세요'); return; }
+  if(!target){ showToast('투입 설비를 선택해주세요'); return; }
+  const now = new Date().toLocaleTimeString('ko-KR',{hour12:false});
+  try{
+    await postUpdate({type:'material', time:now, factory:curFac, material:curMatType, qty:curMatQty, unit:'kg', targetSingle:target, note});
+    await postUpdate({type:'alert', time:now, factory: curFac==='jecheon'?'jc':'wj', level:'info', message:`${FACTORIES[curFac].short} 원자재 투입: ${curMatType} ${fmtM(curMatQty)}kg → ${target}`});
+    showToast('투입 등록 완료');
+    curMatQty = 0;
+    document.getElementById('matVal').innerHTML = '0<span class="u">kg</span>';
+    document.getElementById('matNum').value = 0;
+    document.getElementById('matNote').value = '';
+    await fetchState();
+    renderMaterialHistory();
+  }catch(err){
+    showToast('저장 실패 - 연결 확인');
+    console.error(err);
+  }
+}
+
+function renderMaterialHistory(){
+  const box = document.getElementById('matHistory');
+  if(!box) return;
+  const list = (materials[curFac]||[]).slice().reverse().slice(0,10);
+  box.innerHTML = list.length ? list.map(m=>`
+    <div class="alert-row">
+      <span class="tm num">${m.t}</span>
+      <span class="msg">${m.material} ${fmtM(m.qty)}${m.unit||'kg'} → ${m.target}${m.note?(' · '+m.note):''}</span>
+    </div>`).join('') : '<div class="alert-row"><span class="msg" style="color:var(--text-faint)">최근 투입 이력 없음</span></div>';
+}
+
+/* ---------------- 재공(WIP) 현황 입력 ---------------- */
+function renderWipSection(){
+  const el = document.getElementById('wipList');
+  if(!el) return;
+  const w = (FACTORIES[curFac] && FACTORIES[curFac].wip) || {};
+  el.innerHTML = WIP_STAGES.map(stage=>`
+    <div class="wipcard2">
+      <div class="wl2">${WIP_LABELS[stage]}</div>
+      <div class="stepper">
+        <div class="stepbtn" onclick="wipStep('${stage}',-50)">−</div>
+        <div class="stepval num" id="wipval-${stage}">${fmtM(w[stage])}<span class="u">M</span></div>
+        <div class="stepbtn" onclick="wipStep('${stage}',50)">+</div>
+      </div>
+    </div>`).join('');
+}
+
+function wipStep(stage, delta){
+  if(!FACTORIES[curFac].wip) FACTORIES[curFac].wip = {};
+  const cur = FACTORIES[curFac].wip[stage] || 0;
+  const v = Math.max(0, cur + delta);
+  FACTORIES[curFac].wip[stage] = v;
+  const valEl = document.getElementById('wipval-'+stage);
+  if(valEl) valEl.innerHTML = fmtM(v)+'<span class="u">M</span>';
+  clearTimeout(saveTimers['wip-'+curFac+'-'+stage]);
+  saveTimers['wip-'+curFac+'-'+stage] = setTimeout(()=>commitWip(curFac, stage), 700);
+}
+
+async function commitWip(fac, stage){
+  const qty = (FACTORIES[fac].wip && FACTORIES[fac].wip[stage]) || 0;
+  try{
+    await postUpdate({type:'wip', factory:fac, stage, qty});
+    showToast('저장됨');
+  }catch(err){
+    showToast('저장 실패 - 연결 확인');
+    console.error(err);
+  }
+}
+
+/* ---------------- 탭/섹션 전환 ---------------- */
 document.getElementById('facSel').addEventListener('click', e=>{
   const b = e.target.closest('.facbtn');
   if(!b || deepLinkMode) return;
   curFac = b.dataset.fac;
   updateFacUI();
   renderList();
+  renderMaterialHistory();
+  renderWipSection();
+  populateMatTargets();
 });
 document.getElementById('catSel').addEventListener('click', e=>{
   const b = e.target.closest('.catbtn');
@@ -945,18 +1115,34 @@ document.getElementById('catSel').addEventListener('click', e=>{
   updateCatUI();
   renderList();
 });
+document.getElementById('sectionSel').addEventListener('click', e=>{
+  const b = e.target.closest('.catbtn');
+  if(!b) return;
+  curSection = b.dataset.section;
+  updateSectionUI();
+});
 function updateFacUI(){
   document.querySelectorAll('.facbtn').forEach(b=>b.classList.toggle('on', b.dataset.fac===curFac));
 }
 function updateCatUI(){
-  document.querySelectorAll('.catbtn').forEach(b=>b.classList.toggle('on', b.dataset.cat===curCat));
+  document.querySelectorAll('#catSel .catbtn').forEach(b=>b.classList.toggle('on', b.dataset.cat===curCat));
 }
-updateFacUI(); updateCatUI();
+function updateSectionUI(){
+  document.querySelectorAll('#sectionSel .catbtn').forEach(b=>b.classList.toggle('on', b.dataset.section===curSection));
+  document.getElementById('equipSection').style.display = curSection==='equip' ? '' : 'none';
+  document.getElementById('materialSection').style.display = curSection==='material' ? '' : 'none';
+  document.getElementById('wipSection').style.display = curSection==='wip' ? '' : 'none';
+  if(curSection==='material'){ populateMatTargets(); renderMaterialHistory(); }
+  if(curSection==='wip'){ renderWipSection(); }
+}
+updateFacUI(); updateCatUI(); updateSectionUI();
 if(deepLinkMode){
   const facSelEl = document.getElementById('facSel');
   const catSelEl = document.getElementById('catSel');
+  const sectionSelEl = document.getElementById('sectionSel');
   if(facSelEl) facSelEl.style.display = 'none';
   if(catSelEl) catSelEl.style.display = 'none';
+  if(sectionSelEl) sectionSelEl.style.display = 'none';
 }
 
 /* ================= 최초 로딩 ================= */
