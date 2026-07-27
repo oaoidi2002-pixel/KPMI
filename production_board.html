@@ -427,6 +427,9 @@ textarea.field{resize:vertical;min-height:60px;}
       <input class="field" type="number" inputmode="numeric" id="matNum" value="0" placeholder="직접 입력">
       <button class="applybtn" onclick="matApply()">적용</button>
     </div>
+    <div class="label">세부 종류 (직접 입력, 예전에 쓴 종류는 자동완성으로 나타남)</div>
+    <input class="field" type="text" id="matSubtype" list="matSubtypeList" placeholder="예: A타입, 32수 등">
+    <datalist id="matSubtypeList"></datalist>
     <div class="label">투입 설비 (어느 싱글로 들어가는지)</div>
     <select class="field" id="matTarget"></select>
     <div class="label">특이사항 (선택)</div>
@@ -474,7 +477,7 @@ const SITE_PASSWORD = '0317';
 /* ============================================================
    구글 시트 연동 설정
    ============================================================ */
-const API_URL = 'https://script.google.com/macros/s/AKfycbzyvUYQn4NcGMf7tb4ZX5z8wDs7fb8gCoxRWNMKpfsaTcUw3kikAKOy_ju4OpkTPhrZeQ/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbyODLRpYrsWya_avQkb2SR_-o_102oNEz_1C-Efi756n55kpKK6JYghsfh8F-Aes59lsg/exec';
 
 const FACTORY_META = {
   jecheon:{ name:'제천공장', short:'제천', accent:'jc', targetFinal:6500 },
@@ -494,9 +497,14 @@ let FACTORIES = {
 };
 let alerts = [];
 let materials = { jecheon: [], wonju: [] };
-let trendJC = [520,610,590,680,720,640,700,610];
-let trendWJ = [640,700,680,760,810,700,790,720];
+let trendData = { jecheon: [], wonju: [] };
 let currentTab = 'combined';
+
+function todayStr(){
+  const d = new Date();
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
 
 /* ================= 공통 유틸 ================= */
 function statusInfo(s){
@@ -552,8 +560,19 @@ async function fetchState(){
     materials = {jecheon:[], wonju:[]};
     mrows.forEach(m=>{
       if(!materials[m.factory]) return;
-      materials[m.factory].push({t:fmtTime(m.time), material:m.material, qty:Number(m.qty)||0, unit:m.unit, target:m.targetSingle, note:m.note});
+      materials[m.factory].push({t:fmtTime(m.time), material:m.material, subtype:m.subtype||'', qty:Number(m.qty)||0, unit:m.unit, target:m.targetSingle, note:m.note});
     });
+
+    const trres = await fetch(API_URL+'?action=trend');
+    const trrows = await trres.json();
+    const today = todayStr();
+    trendData = {jecheon:[], wonju:[]};
+    trrows.forEach(r=>{
+      if(String(r.date)===today && trendData[r.factory]){
+        trendData[r.factory].push({hour:Number(r.hour), val:Number(r.finalQty)||0});
+      }
+    });
+    ['jecheon','wonju'].forEach(k=> trendData[k].sort((a,b)=>a.hour-b.hour));
 
     setSyncLabel('LIVE', true);
   }catch(err){
@@ -698,11 +717,11 @@ function renderFactoryDetail(key){
   const achieve = pct(sumFinal, f.targetFinal);
   const allEq = [...f.single, ...f.press, ...f.inspect];
   const onCount = allEq.filter(e=>e.status==='on').length;
-  const avgTrend = key==='jecheon' ? trendJC : trendWJ;
-  const maxTrend = Math.max(...avgTrend);
-  const trendColors = key==='jecheon' ? 'var(--jc)' : 'var(--wj)';
   const w = f.wip || {};
   const matList = (materials[key]||[]).slice().reverse().slice(0,6);
+  const series = (trendData[key]||[]).slice(-8);
+  const trendColor = key==='jecheon' ? 'var(--jc)' : 'var(--wj)';
+  const maxSeries = series.length ? Math.max(...series.map(p=>p.val), 1) : 1;
 
   let html = `
   <div class="section-title"><span>싱글 (${f.single.length}대)</span><span class="ln"></span></div>
@@ -724,10 +743,10 @@ function renderFactoryDetail(key){
 
   <div class="grid2" style="margin-top:26px;">
     <div class="trendcard">
-      <div class="trend-head"><span class="th-l">시간대별 완제품 생산 추이 (최근 8시간)</span><span class="th-v">단위: M</span></div>
-      <div class="spark">
-        ${avgTrend.map((v,i)=>`<div class="bar" style="height:${Math.max(6,v/maxTrend*90)}px;background:${trendColors};opacity:${0.45+ (i/avgTrend.length)*0.55}"><span class="lbl">${8+i*2}시</span></div>`).join('')}
-      </div>
+      <div class="trend-head"><span class="th-l">시간대별 완제품 생산 추이 (오늘)</span><span class="th-v">단위: M</span></div>
+      ${series.length ? `<div class="spark">
+        ${series.map(p=>`<div class="bar" style="height:${Math.max(6,p.val/maxSeries*90)}px;background:${trendColor};opacity:.85"><span class="lbl">${p.hour}시</span></div>`).join('')}
+      </div>` : `<div style="padding:30px 0;text-align:center;color:var(--text-faint);font-size:12.5px;">아직 수집된 데이터가 없습니다<br>Apps Script에 1시간마다 실행되는 트리거(snapshotTrend)를 등록하면 자동으로 쌓입니다</div>`}
     </div>
     <div class="fcard ${f.accent}" style="display:flex;flex-direction:column;justify-content:center;">
       <div class="fhead" style="margin-bottom:14px;">
@@ -787,6 +806,7 @@ function render(){
     renderMaterialHistory();
     renderWipSection();
     populateMatTargets();
+    populateMatSubtypes();
   }
 }
 
@@ -1003,6 +1023,7 @@ function selectMatType(m){
   document.querySelectorAll('#matTypeSel .segbtn').forEach(b=>{
     b.classList.toggle('sel-on', b.dataset.mat===m);
   });
+  populateMatSubtypes();
 }
 
 function matStep(delta){
@@ -1029,23 +1050,36 @@ function populateMatTargets(){
 async function saveMaterial(){
   const target = document.getElementById('matTarget').value;
   const note = document.getElementById('matNote').value.trim();
+  const subtype = document.getElementById('matSubtype').value.trim();
   if(curMatQty<=0){ showToast('투입량을 입력해주세요'); return; }
   if(!target){ showToast('투입 설비를 선택해주세요'); return; }
   const now = new Date().toLocaleTimeString('ko-KR',{hour12:false});
   try{
-    await postUpdate({type:'material', time:now, factory:curFac, material:curMatType, qty:curMatQty, unit:'kg', targetSingle:target, note});
-    await postUpdate({type:'alert', time:now, factory: curFac==='jecheon'?'jc':'wj', level:'info', message:`${FACTORIES[curFac].short} 원자재 투입: ${curMatType} ${fmtM(curMatQty)}kg → ${target}`});
+    await postUpdate({type:'material', time:now, factory:curFac, material:curMatType, subtype, qty:curMatQty, unit:'kg', targetSingle:target, note});
+    await postUpdate({type:'alert', time:now, factory: curFac==='jecheon'?'jc':'wj', level:'info', message:`${FACTORIES[curFac].short} 원자재 투입: ${curMatType}${subtype?('('+subtype+')'):''} ${fmtM(curMatQty)}kg → ${target}`});
     showToast('투입 등록 완료');
     curMatQty = 0;
     document.getElementById('matVal').innerHTML = '0<span class="u">kg</span>';
     document.getElementById('matNum').value = 0;
+    document.getElementById('matSubtype').value = '';
     document.getElementById('matNote').value = '';
     await fetchState();
     renderMaterialHistory();
+    populateMatSubtypes();
   }catch(err){
     showToast('저장 실패 - 연결 확인');
     console.error(err);
   }
+}
+
+function populateMatSubtypes(){
+  const dl = document.getElementById('matSubtypeList');
+  if(!dl) return;
+  const seen = new Set();
+  (materials[curFac]||[]).forEach(m=>{
+    if(m.material===curMatType && m.subtype) seen.add(m.subtype);
+  });
+  dl.innerHTML = [...seen].map(s=>`<option value="${s}"></option>`).join('');
 }
 
 function renderMaterialHistory(){
@@ -1055,7 +1089,7 @@ function renderMaterialHistory(){
   box.innerHTML = list.length ? list.map(m=>`
     <div class="alert-row">
       <span class="tm num">${m.t}</span>
-      <span class="msg">${m.material} ${fmtM(m.qty)}${m.unit||'kg'} → ${m.target}${m.note?(' · '+m.note):''}</span>
+      <span class="msg">${m.material}${m.subtype?('('+m.subtype+')'):''} ${fmtM(m.qty)}${m.unit||'kg'} → ${m.target}${m.note?(' · '+m.note):''}</span>
     </div>`).join('') : '<div class="alert-row"><span class="msg" style="color:var(--text-faint)">최근 투입 이력 없음</span></div>';
 }
 
@@ -1107,6 +1141,7 @@ document.getElementById('facSel').addEventListener('click', e=>{
   renderMaterialHistory();
   renderWipSection();
   populateMatTargets();
+  populateMatSubtypes();
 });
 document.getElementById('catSel').addEventListener('click', e=>{
   const b = e.target.closest('.catbtn');
@@ -1132,7 +1167,7 @@ function updateSectionUI(){
   document.getElementById('equipSection').style.display = curSection==='equip' ? '' : 'none';
   document.getElementById('materialSection').style.display = curSection==='material' ? '' : 'none';
   document.getElementById('wipSection').style.display = curSection==='wip' ? '' : 'none';
-  if(curSection==='material'){ populateMatTargets(); renderMaterialHistory(); }
+  if(curSection==='material'){ populateMatTargets(); renderMaterialHistory(); populateMatSubtypes(); }
   if(curSection==='wip'){ renderWipSection(); }
 }
 updateFacUI(); updateCatUI(); updateSectionUI();
