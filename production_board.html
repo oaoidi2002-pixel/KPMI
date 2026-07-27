@@ -516,6 +516,16 @@ function statusLabel(s){return s==='on'?'가동중':s==='off'?'정지':'점검�
 function pct(cur,tgt){return tgt>0 ? Math.min(100, Math.round(cur/tgt*100)) : 0;}
 function pbarClass(p){return p>=90?'ok':p>=60?'ok':p>=30?'warn':'bad';}
 function fmtM(n){return Math.round(Number(n)||0).toLocaleString('ko-KR');}
+function finalQtyOf(f){
+  const sumInspect = f.inspect.reduce((a,e)=>a+e.cur,0);
+  const sumDefect = f.inspect.reduce((a,e)=>a+(e.defect||0),0);
+  return Math.max(0, sumInspect - sumDefect);
+}
+function packedQtyOf(f){
+  const fin = finalQtyOf(f);
+  const waitPack = (f.wip && f.wip.inspect_wait_pack) || 0;
+  return Math.max(0, fin - waitPack);
+}
 function fmtTime(v){
   try{
     const d = new Date(v);
@@ -535,7 +545,7 @@ async function fetchState(){
       if(!grouped[r.factory] || !grouped[r.factory][r.category]) return;
       grouped[r.factory][r.category].push({
         id:r.id, item:r.item, status:r.status,
-        cur:Number(r.cur)||0, tgt:Number(r.tgt)||1, startHour:r.startHour||8
+        cur:Number(r.cur)||0, tgt:Number(r.tgt)||1, defect:Number(r.defect)||0, startHour:r.startHour||8
       });
     });
 
@@ -597,18 +607,20 @@ function setSyncLabel(text, ok){
 function renderRail(){
   const f = currentTab==='wonju' ? FACTORIES.wonju : currentTab==='jecheon' ? FACTORIES.jecheon : null;
   const rail = document.getElementById('rail');
-  let sumSingle,sumPress,sumInspect,sumFinal,tgtFinal;
+  let sumSingle,sumPress,sumInspect,sumFinal,sumPacked,tgtFinal;
   if(f){
     sumSingle = f.single.reduce((a,e)=>a+e.cur,0);
     sumPress = f.press.reduce((a,e)=>a+e.cur,0);
     sumInspect = f.inspect.reduce((a,e)=>a+e.cur,0);
-    sumFinal = Math.round(sumInspect*0.94);
+    sumFinal = finalQtyOf(f);
+    sumPacked = packedQtyOf(f);
     tgtFinal = f.targetFinal;
   } else {
     sumSingle = FACTORIES.jecheon.single.reduce((a,e)=>a+e.cur,0)+FACTORIES.wonju.single.reduce((a,e)=>a+e.cur,0);
     sumPress = FACTORIES.jecheon.press.reduce((a,e)=>a+e.cur,0)+FACTORIES.wonju.press.reduce((a,e)=>a+e.cur,0);
     sumInspect = FACTORIES.jecheon.inspect.reduce((a,e)=>a+e.cur,0)+FACTORIES.wonju.inspect.reduce((a,e)=>a+e.cur,0);
-    sumFinal = Math.round(sumInspect*0.94);
+    sumFinal = finalQtyOf(FACTORIES.jecheon) + finalQtyOf(FACTORIES.wonju);
+    sumPacked = packedQtyOf(FACTORIES.jecheon) + packedQtyOf(FACTORIES.wonju);
     tgtFinal = FACTORIES.jecheon.targetFinal+FACTORIES.wonju.targetFinal;
   }
   const stageVals = [
@@ -616,7 +628,7 @@ function renderRail(){
     {name:'싱글', val:fmtM(sumSingle)+' M', st: sumSingle>0?'ok':'bad'},
     {name:'프레스', val:fmtM(sumPress)+' M', st: sumPress>0?'ok':'warn'},
     {name:'검단', val:fmtM(sumInspect)+' M', st:'ok'},
-    {name:'포장', val:fmtM(Math.round(sumFinal*0.9))+' M', st:'ok'},
+    {name:'포장', val:fmtM(sumPacked)+' M', st:'ok'},
     {name:'완제품', val:fmtM(sumFinal)+' / '+fmtM(tgtFinal)+' M', st: sumFinal/tgtFinal>0.5?'ok':'warn'}
   ];
   rail.innerHTML = stageVals.map((s,i)=>{
@@ -634,7 +646,7 @@ function renderCombined(){
   let html = '<div class="grid2">';
   ['jecheon','wonju'].forEach(key=>{
     const f = FACTORIES[key];
-    const sumFinal = Math.round(f.inspect.reduce((a,e)=>a+e.cur,0)*0.94);
+    const sumFinal = finalQtyOf(f);
     const achieve = pct(sumFinal, f.targetFinal);
     const allEq = [...f.single, ...f.press, ...f.inspect];
     const onCount = allEq.filter(e=>e.status==='on').length;
@@ -671,7 +683,7 @@ function renderCombined(){
     ${cmpRow('싱글 생산', FACTORIES.jecheon.single.reduce((a,e)=>a+e.cur,0), FACTORIES.wonju.single.reduce((a,e)=>a+e.cur,0))}
     ${cmpRow('프레스 생산', FACTORIES.jecheon.press.reduce((a,e)=>a+e.cur,0), FACTORIES.wonju.press.reduce((a,e)=>a+e.cur,0))}
     ${cmpRow('검단 처리량', FACTORIES.jecheon.inspect.reduce((a,e)=>a+e.cur,0), FACTORIES.wonju.inspect.reduce((a,e)=>a+e.cur,0))}
-    ${cmpRow('완제품(검단 후)', Math.round(FACTORIES.jecheon.inspect.reduce((a,e)=>a+e.cur,0)*0.94), Math.round(FACTORIES.wonju.inspect.reduce((a,e)=>a+e.cur,0)*0.94))}
+    ${cmpRow('완제품(검단 후)', finalQtyOf(FACTORIES.jecheon), finalQtyOf(FACTORIES.wonju))}
   </table>
 
   <div class="section-title"><span>실시간 알림</span><span class="ln"></span></div>
@@ -697,6 +709,8 @@ function renderAlerts(){
 function eqCard(e){
   const si = statusInfo(e.status);
   const p = e.status==='off' ? 0 : pct(e.cur, e.tgt);
+  const defectLine = (e.defect!==undefined && e.defect>0)
+    ? `<div class="footline"><span style="color:var(--bad)">불량 ${fmtM(e.defect)} M</span><span>양품 ${fmtM(Math.max(0,e.cur-e.defect))} M</span></div>` : '';
   return `
   <div class="eqcard">
     <div class="eqhead">
@@ -707,13 +721,14 @@ function eqCard(e){
     <div class="eqnum"><span class="cur num">${fmtM(e.cur)}</span><span class="tgt num">/ ${fmtM(e.tgt)} M</span></div>
     <div class="progress ${pbarClass(p)}"><div style="width:${p}%"></div></div>
     <div class="footline"><span>목표 대비 ${p}%</span><span>가동 시작 ${e.startHour}:00</span></div>
+    ${defectLine}
   </div>`;
 }
 
 function renderFactoryDetail(key){
   const f = FACTORIES[key];
   document.getElementById('viewSub').textContent = f.name + ' · 설비별 상세 현황';
-  const sumFinal = Math.round(f.inspect.reduce((a,e)=>a+e.cur,0)*0.94);
+  const sumFinal = finalQtyOf(f);
   const achieve = pct(sumFinal, f.targetFinal);
   const allEq = [...f.single, ...f.press, ...f.inspect];
   const onCount = allEq.filter(e=>e.status==='on').length;
@@ -757,7 +772,7 @@ function renderFactoryDetail(key){
         <div class="kpi">
           <div class="k-label">완제품 실적 / 목표</div>
           <div class="k-val num">${fmtM(sumFinal)}<span class="unit">/ ${fmtM(f.targetFinal)} M</span></div>
-          <div class="k-sub">달성률 ${achieve}%</div>
+          <div class="k-sub">달성률 ${achieve}% · 포장완료 ${fmtM(packedQtyOf(f))} M</div>
         </div>
         <div class="kpi">
           <div class="k-label">평균 설비 가동률</div>
@@ -905,6 +920,19 @@ function renderList(){
           <input class="field" type="number" inputmode="numeric" id="num-${uid}" value="${e.cur}" placeholder="직접 입력">
           <button class="applybtn" onclick="applyNum('${uid}')">적용</button>
         </div>
+        ${curCat==='inspect' ? `
+        <div class="label" style="color:var(--bad)">불량 수량 (M) · +/- 는 잠시 후 자동저장</div>
+        <div class="stepper">
+          <div class="stepbtn" onclick="quickStepDefect('${uid}',-10)">−</div>
+          <div class="stepval num" id="defval-${uid}">${fmtM(e.defect||0)}<span class="u">M</span></div>
+          <div class="stepbtn" onclick="quickStepDefect('${uid}',10)">+</div>
+        </div>
+        <div class="quickrow">
+          <input class="field" type="number" inputmode="numeric" id="defnum-${uid}" value="${e.defect||0}" placeholder="직접 입력">
+          <button class="applybtn" onclick="applyNumDefect('${uid}')">적용</button>
+        </div>
+        <div class="tgtline">양품 ${fmtM(Math.max(0,e.cur-(e.defect||0)))} M (검단수량 − 불량수량)</div>
+        ` : ''}
         <div class="notetoggle" onclick="toggleNote('${uid}')">＋ 품목/특이사항 입력</div>
         <div class="notebox" id="note-box-${uid}" style="display:none">
           <div class="label">생산 품목 / 규격</div>
@@ -959,6 +987,29 @@ function applyNum(uid){
   commitSave(uid);
 }
 
+function quickStepDefect(uid, delta){
+  const {cat, idx} = uidParts(uid);
+  const eqObj = FACTORIES[curFac][cat][idx];
+  eqObj.defect = Math.max(0, (eqObj.defect||0) + delta);
+  const valEl = document.getElementById('defval-'+uid);
+  const numEl = document.getElementById('defnum-'+uid);
+  if(valEl) valEl.innerHTML = fmtM(eqObj.defect)+'<span class="u">M</span>';
+  if(numEl) numEl.value = eqObj.defect;
+  clearTimeout(saveTimers['def-'+uid]);
+  saveTimers['def-'+uid] = setTimeout(()=>commitSave(uid), 700);
+}
+
+function applyNumDefect(uid){
+  const {cat, idx} = uidParts(uid);
+  const numEl = document.getElementById('defnum-'+uid);
+  const v = Math.max(0, parseInt(numEl.value||'0'));
+  FACTORIES[curFac][cat][idx].defect = v;
+  const valEl = document.getElementById('defval-'+uid);
+  if(valEl) valEl.innerHTML = fmtM(v)+'<span class="u">M</span>';
+  clearTimeout(saveTimers['def-'+uid]);
+  commitSave(uid);
+}
+
 function toggleNote(uid){
   const box = document.getElementById('note-box-'+uid);
   if(box) box.style.display = (box.style.display==='none') ? '' : 'none';
@@ -973,7 +1024,7 @@ async function saveNote(uid){
   FACTORIES[curFac][cat][idx].item = newItem;
   const eq = FACTORIES[curFac][cat][idx];
   try{
-    await postUpdate({type:'update', factory:curFac, category:cat, id:eq.id, item:newItem, status:eq.status, cur:eq.cur});
+    await postUpdate({type:'update', factory:curFac, category:cat, id:eq.id, item:newItem, status:eq.status, cur:eq.cur, defect:eq.defect||0});
     if(note){
       const now = new Date().toLocaleTimeString('ko-KR',{hour12:false});
       await postUpdate({type:'alert', time:now, factory: curFac==='jecheon'?'jc':'wj', level:'info', message: `${FACTORIES[curFac].short} ${eq.id}: ${note}`});
@@ -990,7 +1041,7 @@ async function commitSave(uid){
   const {cat, idx} = uidParts(uid);
   const eq = FACTORIES[curFac][cat][idx];
   try{
-    await postUpdate({type:'update', factory:curFac, category:cat, id:eq.id, item:eq.item, status:eq.status, cur:eq.cur});
+    await postUpdate({type:'update', factory:curFac, category:cat, id:eq.id, item:eq.item, status:eq.status, cur:eq.cur, defect:eq.defect||0});
     if(eq.status !== 'on'){
       const now = new Date().toLocaleTimeString('ko-KR',{hour12:false});
       const msg = `${FACTORIES[curFac].short} ${eq.id} ${statusLabel(eq.status)} (생산량 ${fmtM(eq.cur)} M)`;
