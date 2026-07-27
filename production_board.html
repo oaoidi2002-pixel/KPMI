@@ -335,6 +335,17 @@ textarea.field{resize:vertical;min-height:60px;}
 </style>
 </head>
 <body>
+
+<div id="lockScreen" style="position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;">
+  <div style="width:100%;max-width:320px;padding:32px 28px;background:var(--panel);border:1px solid var(--border);border-radius:14px;text-align:center;">
+    <div style="font-size:16px;font-weight:700;margin-bottom:6px;">생산현황판</div>
+    <div style="font-size:12.5px;color:var(--text-faint);margin-bottom:20px;">비밀번호를 입력하세요</div>
+    <input id="lockInput" type="password" inputmode="numeric" style="width:100%;background:var(--panel-2);border:1px solid var(--border-soft);border-radius:9px;padding:12px 14px;color:var(--text);font-size:16px;text-align:center;margin-bottom:12px;" placeholder="••••••••">
+    <button id="lockBtn" style="width:100%;padding:12px;border-radius:9px;background:var(--text);color:var(--bg);font-size:14.5px;font-weight:700;border:none;">확인</button>
+    <div id="lockError" style="color:var(--bad);font-size:12px;margin-top:10px;display:none;">비밀번호가 올바르지 않습니다</div>
+  </div>
+</div>
+
 <div id="dashboardRoot">
 
 
@@ -394,6 +405,36 @@ textarea.field{resize:vertical;min-height:60px;}
 
 </div>
 <script>
+/* ================= 접속 비밀번호 (간단한 접근 차단용) =================
+   완전한 보안은 아니지만, 주소를 우연히 알게 된 사람이 바로 못 들어오게
+   막는 용도입니다. 비밀번호를 바꾸려면 아래 문자열만 수정하면 됩니다. */
+const SITE_PASSWORD = 'KPMI1234';
+(function(){
+  const lockScreen = document.getElementById('lockScreen');
+  const lockInput = document.getElementById('lockInput');
+  const lockBtn = document.getElementById('lockBtn');
+  const lockError = document.getElementById('lockError');
+
+  function tryUnlock(){
+    if(lockInput.value === SITE_PASSWORD){
+      sessionStorage.setItem('pb_unlocked', '1');
+      lockScreen.style.display = 'none';
+    } else {
+      lockError.style.display = 'block';
+      lockInput.value = '';
+      lockInput.focus();
+    }
+  }
+
+  try{
+    if(sessionStorage.getItem('pb_unlocked') === '1'){
+      lockScreen.style.display = 'none';
+    }
+  }catch(e){}
+
+  lockBtn.addEventListener('click', tryUnlock);
+  lockInput.addEventListener('keydown', e=>{ if(e.key==='Enter') tryUnlock(); });
+})();
 /* ============================================================
    구글 시트 연동 설정
    Apps Script를 웹앱으로 배포한 뒤 생성되는 URL을 아래에 붙여넣으세요.
